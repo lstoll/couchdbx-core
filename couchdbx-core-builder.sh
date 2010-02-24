@@ -9,11 +9,11 @@
 
 # use full svn path for branches like "branches/0.9.x"
 if [ -z "$COUCHDB_VERSION" ]; then
-    COUCHDB_VERSION="0.10.1"
+    COUCHDB_VERSION="trunk"
 fi
 
 if [ -z "$COUCHDB_SVNPATH" ]; then
-    COUCHDB_SVNPATH="tags/0.10.1"
+    COUCHDB_SVNPATH="trunk"
 fi
 
 # or R12B-5
@@ -45,7 +45,7 @@ erlang_download()
     BASE_URL="http://www.csd.uu.se/ftp/mirror/erlang/download"
     cd src
     if [ ! -e $FILE_NAME.tar.gz ]; then
-      curl -O $BASE_URL/$FILE_NAME.tar.gz
+      wget $BASE_URL/$FILE_NAME.tar.gz
     fi
     tar xzf $FILE_NAME.tar.gz
     mv $FILE_NAME $ERLANGSRCDIR
@@ -63,7 +63,9 @@ erlang_install()
       --enable-hipe \
       --enable-dynamic-ssl-lib \
       --with-ssl=/usr \
-      --without-java
+      --without-java \
+      --enable-darwin-64bit \
+      --enable-m64-build
     # skip wxWidgets
     touch lib/wx/SKIP
     make # can't have -jN so no $MAKEOPTS
@@ -71,6 +73,11 @@ erlang_install()
     cd ../../
     cd dist
     rm -rf erlang
+    
+    if [ -d "erlang" ]; then
+      rm -rf erlang
+    fi
+
     cp -r $ERLANGDISTDIR erlang
     cd ..
     touch .erlang-$ERLANG_VERSION-installed
@@ -95,7 +102,9 @@ strip_erlang_dist()
 {
 
   # backup erlang build tree
-  cp -r $WORKDIR/dist/$ERLANGDISTDIR $WORKDIR/dist/erlang
+  if [ ! -d "$WORKDIR/dist/erlang" ]; then
+    cp -r $WORKDIR/dist/$ERLANGDISTDIR $WORKDIR/dist/erlang
+  fi
 
   # strip unused erlang crap^Wlibs
   cd $WORKDIR/dist/$ERLANGDISTDIR/lib/erlang/lib
@@ -167,7 +176,10 @@ couchdb_download()
     cd src
     if [ ! -d "$COUCHDBSRCDIR" ]; then
       svn checkout http://svn.apache.org/repos/asf/couchdb/$COUCHDB_SVNPATH $COUCHDBSRCDIR
+    else
+      svn up $COUCHDBSRCDIR
     fi
+    COUCHDB_VERSION=${COUCHDB_SVNPATH}_`svnversion $COUCHDBSRCDIR`
     cd ..
 }
 
@@ -251,20 +263,12 @@ create_dirs()
   mkdir -p $DIRS
 }
 
-cleanup()
-{
-  rm -rf $DIRS \
-    .erlang-downloaded .erlang-installed \
-    .couchdb-downloaded .couchdb-installed
-}
-
-
 download_js()
 {
   if [ ! -e .js-downloaded ]; then
     cd src
     if [ ! -e js-1.7.0.tar.gz ]; then
-      curl -O http://ftp.mozilla.org/pub/mozilla.org/js/js-1.7.0.tar.gz
+      wget http://ftp.mozilla.org/pub/mozilla.org/js/js-1.7.0.tar.gz
     fi
     tar xzf js-1.7.0.tar.gz
     cd ..
@@ -319,6 +323,32 @@ package()
   cd ..
 }
 
+build_app()
+{
+  cd ../couchdbx-app
+  xcodebuild
+  cd ../couchdbx-core
+}
+
+bundle_app()
+{
+  cp -r ../couchdbx-app/build/Release/CouchDBX.app .
+
+  cp -r $PACKAGEDIR CouchDBX.app/Contents/Resources/couchdbx-core
+  cd CouchDBX.app/Contents/Resources/couchdbx-core/
+  rm -rf couchdb
+  ln -s couchdb_trunk couchdb
+  cd ../../../../
+
+  DEST_APP_PATH="CouchDBX-$ERLANG_VERSION-$COUCHDB_VERSION.app"
+  mv CouchDBX.app $DEST_APP_PATH
+  mkdir bundle
+  mv $DEST_APP_PATH bundle
+  ditto -c -k --sequesterRsrc bundle \
+    $DEST_APP_PATH.zip
+  rm -rf bundle
+}
+
 # main:
 
 create_dirs
@@ -328,5 +358,7 @@ couchdb
 erlang_post_install
 strip_erlang_dist
 package
+build_app
+bundle_app
 
 echo "Done, kthxbye."
