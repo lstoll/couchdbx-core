@@ -18,7 +18,7 @@ fi
 
 # or R12B-5
 if [ -z "$ERLANG_VERSION" ]; then
-    ERLANG_VERSION="R13B03"
+    ERLANG_VERSION="R13B04"
 fi
 
 # make options
